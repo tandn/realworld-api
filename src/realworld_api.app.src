@@ -1,0 +1,17 @@
+{application, realworld_api,
+ [{description, "An OTP application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {realworld_api_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    cowboy,
+    pgo
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache-2.0"]},
+  {links, []}
+ ]}.
