@@ -55,11 +55,11 @@ $ rebar3 shell
 ## Test
 
 ```
-$ cd run\_api\_test
-$ ./run\_api\_test.sh
+$ cd run_api_test
+$ ./run_api_test.sh
 ```
 
 ## TODO
-
-- handle optional endpoints
+- add tests
+- optional endpoints
 - cowboy_swaggger
