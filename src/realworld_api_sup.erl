@@ -26,16 +26,12 @@ start_link() ->
 %%                  type => worker(),       % optional
 %%                  modules => modules()}   % optional
 init([]) ->
-    SupFlags = #{strategy => one_for_all,
-                 intensity => 0,
-                 period => 1},    
-    
-    {ok, DBConfig} = application:get_env(realworld_api, db_pool),
+    SupFlags = #{
+        strategy => one_for_all,
+        intensity => 0,
+        period => 1
+    },
 
-    PoolSpec = #{id => db_pool,
-		 start => {pgo_pool, start_link, [default, DBConfig]}
-		},
-
-    {ok, {SupFlags, [PoolSpec]}}.
+    {ok, {SupFlags, []}}.
 
 %% internal functions
