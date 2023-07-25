@@ -57,25 +57,23 @@ handle_get(Req, State) ->
         end,
     {jsx:encode(Response), Req, State}.
 
-handle_post(Req, #{<<"user">> := User} = State) ->
+handle_post(Req, #{<<"user">> := Follower} = State) ->
     Username = cowboy_req:binding(username, Req),
-    ClaimId = maps:get(<<"id">>, User),
     Req1 =
-        case repo:follow_user(ClaimId, Username) of
-            {ok, User0} ->
-                common:reply(Req, ?HTTP_OK, build_profile(User0));
+        case repo:follow_user(Follower, Username) of
+            {ok, User1} ->
+                common:reply(Req, ?HTTP_OK, build_profile(User1));
             {error, Reason} ->
                 common:reply(Req, ?HTTP_INVALID, ?error_msg(Reason))
         end,
     {stop, Req1, State}.
 
-delete_resource(Req, #{<<"user">> := User} = State) ->
+delete_resource(Req, #{<<"user">> := Follower} = State) ->
     Username = cowboy_req:binding(username, Req),
-    ClaimId = maps:get(<<"id">>, User),
     Req1 =
-        case repo:unfollow_user(ClaimId, Username) of
-            {ok, User0} ->
-                common:reply(Req, ?HTTP_OK, build_profile(User0));
+        case repo:unfollow_user(Follower, Username) of
+            {ok, User1} ->
+                common:reply(Req, ?HTTP_OK, build_profile(User1));
             {error, Reason} ->
                 common:reply(Req, ?HTTP_INVALID, ?error_msg(Reason))
         end,

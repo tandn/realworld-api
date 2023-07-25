@@ -39,26 +39,33 @@ is_authorized(Req, State) ->
     {true, Req, State}.
 
 content_types_provided(Req, State) ->
-    Path = cowboy_req:path(Req),
     {[{<<"application/json">>, handle_get}], Req, State}.
 
 content_types_accepted(#{method := <<"POST">>} = Req, State) ->
     {[{<<"application/json">>, handle_create}], Req, State}.
 
 handle_get(Req, State) ->
-    {ok, ArticleList} = repo:get_articles_with_authors(),
-    Response = format_articles(ArticleList),
-    {jsx:encode(Response), Req, State}.
+    Req1 =
+	maybe
+	    {ok, Opts} ?= parse_qs(Req),
+	    {ok, ArticleList} = repo:get_articles_with_authors(Opts),
+	    common:reply(Req, ?HTTP_OK, format_articles(ArticleList))
+	else
+	    {error, Reason} ->
+		common:reply(Req, ?HTTP_INVALID, ?error_msg(Reason))
+	end,
+    {stop, Req1, State}.
 
-handle_create(Req, #{<<"user">> := #{<<"id">> := UserId}} = State) ->
+handle_create(Req, #{<<"user">> := User} = State) ->
     {ok, Data, Req0} = cowboy_req:read_body(Req),
-    case repo:create_article(jsx:decode(Data), UserId) of
+    case repo:create_article(jsx:decode(Data), User) of
         {ok, Article} ->
-            {ok, User} = repo:get_user_by_id(UserId),
+	    Username = maps:get(<<"username">>, User),
+            {ok, User1} = repo:get_user_by_username(Username),
             common:reply(
                 Req,
                 ?HTTP_OK,
-                #{<<"article">> => format_article(Article, User)}
+                #{<<"article">> => format_article(Article, User1)}
             );
         {error, Reason} ->
             common:reply(Req, ?HTTP_INVALID, ?error_msg(Reason))
@@ -66,7 +73,7 @@ handle_create(Req, #{<<"user">> := #{<<"id">> := UserId}} = State) ->
     {stop, Req0, State}.
 
 format_article(Article0, User) ->
-    FavoritesCount = maps:get(<<"favoritesCount">>, Article0),
+    FavoritesCount = length(maps:get(<<"favorited_by">>, Article0)),
     CreatedAt = maps:get(<<"createdAt">>, Article0),
     UpdatedAt = maps:get(<<"updatedAt">>, Article0),
 
@@ -74,6 +81,7 @@ format_article(Article0, User) ->
         ?ARTICLE_EXCLUDE_KEYS,
         Article0#{
             <<"favorited">> => (FavoritesCount > 0),
+            <<"favoritesCount">> => FavoritesCount,
             <<"createdAt">> => common:to_iso8601(CreatedAt),
             <<"updatedAt">> => common:to_iso8601(UpdatedAt)
         }
@@ -109,3 +117,12 @@ article_map_from_row(ArticleRow) when is_tuple(ArticleRow) ->
     article_map_from_row(tuple_to_list(ArticleRow));
 article_map_from_row(ArticleRow) ->
     #{Key => Value || {Key, Value} <- lists:zip(?ARTICLE_KEYS, ArticleRow)}.
+
+parse_qs(Req) ->
+    case catch cowboy_req:match_qs(?DEFAULT_QS, Req) of
+        Result when is_map(Result) ->
+            {ok, Result};
+        {'EXIT', Reason} ->
+            logger:debug("~p~n", [Reason]),
+            {error, <<"Query string validation constraints failed">>}
+    end.

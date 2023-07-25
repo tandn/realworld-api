@@ -1,4 +1,4 @@
--module(article_slug_h).
+-module(slug_h).
 
 -include("realworld.hrl").
 
@@ -47,7 +47,8 @@ handle_get(Req, State) ->
     Response =
         case repo:get_article_by_slug(Slug) of
             {ok, Article} ->
-                {ok, User} = repo:get_user_by_id(maps:get(<<"author_id">>, Article)),
+		UserId = maps:get(<<"author_id">>, Article),
+                {ok, User} = repo:get_user_by_id(UserId),
                 build_response(article_h:format_article(Article, User));
             {error, Reason} ->
                 ?error_msg(Reason)
@@ -56,29 +57,28 @@ handle_get(Req, State) ->
 
 handle_post(Req, #{<<"user">> := User} = State) ->
     Slug = cowboy_req:binding(slug, Req),
-    ClaimId = maps:get(<<"id">>, User),
     Req1 =
-        case repo:favorite_article(Slug, ClaimId) of
+        case repo:favorite_article(Slug, User) of
             {ok, Article} ->
-                {ok, User0} = repo:get_user_by_id(ClaimId),
-                common:reply(Req, ?HTTP_OK, build_response(article_h:format_article(Article, User0)));
+		Username = maps:get(<<"username">>, User),
+                {ok, User1} = repo:get_user_by_username(Username),
+                common:reply(Req, ?HTTP_OK, build_response(article_h:format_article(Article, User1)));
             {error, Reason} ->
-                common:reply(Req, 500, ?error_msg(Reason))
+                common:reply(Req, ?HTTP_INVALID, ?error_msg(Reason))
         end,
     {stop, Req1, State}.
 
 handle_update(Req, #{<<"user">> := User} = State) ->
     Slug = cowboy_req:binding(slug, Req),
     {ok, Body, Req0} = cowboy_req:read_body(Req),
-    Article0 = jsx:decode(Body),
-    ClaimId = maps:get(<<"id">>, User),
     Req1 =
-        case repo:update_article(Article0, Slug, ClaimId) of
+        case repo:update_article(jsx:decode(Body), Slug, User) of
             {ok, Article} ->
-                {ok, User0} = repo:get_user_by_id(ClaimId),
-                common:reply(Req, ?HTTP_OK, build_response(article_h:format_article(Article, User0)));
+		Username = maps:get(<<"username">>, User),
+                {ok, User1} = repo:get_user_by_username(Username),
+                common:reply(Req0, ?HTTP_OK, build_response(article_h:format_article(Article, User1)));
             {error, Reason} ->
-                common:reply(Req, 500, ?error_msg(Reason))
+                common:reply(Req0, ?HTTP_INVALID, ?error_msg(Reason))
         end,
     {stop, Req1, State}.
 
@@ -89,20 +89,19 @@ delete_resource(Req, State) ->
 
 handle_delete([_Slug, <<"favorite">>], Req, #{<<"user">> := User} = State) ->
     Slug = cowboy_req:binding(slug, Req),
-    ClaimId = maps:get(<<"id">>, User),
     Req1 =
-        case repo:unfavorite_article(Slug, ClaimId) of
+        case repo:unfavorite_article(Slug, User) of
             {ok, Article} ->
-                {ok, User0} = repo:get_user_by_id(ClaimId),
-                common:reply(Req, ?HTTP_OK, build_response(article_h:format_article(Article, User0)));
+		Username = maps:get(<<"username">>, User),
+                {ok, User1} = repo:get_user_by_username(Username),
+                common:reply(Req, ?HTTP_OK, build_response(article_h:format_article(Article, User1)));
             {error, Reason} ->
                 common:reply(Req, ?HTTP_INVALID, ?error_msg(Reason))
         end,
     {stop, Req1, State};
 handle_delete([_Slug], Req, #{<<"user">> := User} = State) ->
     Slug = cowboy_req:binding(slug, Req),
-    ClaimId = maps:get(<<"id">>, User),
-    _ = repo:delete_article(Slug, ClaimId),
+    _ = repo:delete_article(Slug, User),
 
     Req1 = common:reply(Req, ?HTTP_OK),
 

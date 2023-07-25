@@ -45,10 +45,9 @@ content_types_accepted(Req, State) ->
 delete_resource(Req, #{<<"user">> := User} = State) ->
     Slug = cowboy_req:binding(slug, Req),
     CommentId = cowboy_req:binding(id, Req),
-    ClaimId = maps:get(<<"id">>, User),
 
     Req1 =
-        case repo:delete_comment(ClaimId, CommentId, Slug) of
+        case repo:delete_comment(CommentId, Slug, User) of
             {error, Reason} ->
                 common:reply(Req, ?HTTP_INVALID, ?error_msg(Reason));
             true ->
@@ -65,15 +64,14 @@ handle_get(Req, State) ->
 handle_post(Req, #{<<"user">> := User} = State) ->
     Slug = cowboy_req:binding(slug, Req),
     {ok, Body, Req0} = cowboy_req:read_body(Req),
-    Comment0 = jsx:decode(Body),
-    ClaimId = maps:get(<<"id">>, User),
     Req1 =
-        case repo:add_comment(Comment0, Slug, ClaimId) of
+        case repo:add_comment(jsx:decode(Body), Slug, User) of
             {ok, Comment} ->
-                {ok, User1} = repo:get_user_by_id(ClaimId),
-                common:reply(Req, ?HTTP_OK, #{<<"comment">> => format_comment(Comment, User1)});
+		Username = maps:get(<<"username">>, User),
+                {ok, User1} = repo:get_user_by_username(Username),
+                common:reply(Req0, ?HTTP_OK, #{<<"comment">> => format_comment(Comment, User1)});
             {error, Reason} ->
-                common:reply(Req, ?HTTP_INVALID, ?error_msg(Reason))
+                common:reply(Req0, ?HTTP_INVALID, ?error_msg(Reason))
         end,
     {stop, Req1, State}.
 

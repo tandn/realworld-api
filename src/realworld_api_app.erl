@@ -17,12 +17,12 @@ start(_StartType, _StartArgs) ->
         {"/api/profiles/:username/follow", profile_h, #{methods => [<<"POST">>, <<"DELETE">>]}},
 
         %% collection
-        {"/api/articles/", article_h, #{methods => [<<"GET">>, <<"POST">>]}},
+        {"/api/articles", article_h, #{methods => [<<"GET">>, <<"POST">>]}},
         {"/api/articles/feed", article_h, #{methods => [<<"GET">>]}},
 
         %% single resource handler
-        {"/api/articles/:slug", article_slug_h, #{methods => [<<"GET">>, <<"DELETE">>, <<"PUT">>]}},
-        {"/api/articles/:slug/favorite", article_slug_h, #{methods => [<<"POST">>, <<"DELETE">>]}},
+        {"/api/articles/:slug", slug_h, #{methods => [<<"GET">>, <<"DELETE">>, <<"PUT">>]}},
+        {"/api/articles/:slug/favorite", slug_h, #{methods => [<<"POST">>, <<"DELETE">>]}},
 
         %% comments
         {"/api/articles/:slug/comments", comment_h, #{methods => [<<"POST">>, <<"GET">>]}},

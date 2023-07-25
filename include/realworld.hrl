@@ -25,12 +25,16 @@
     <<"description">>,
     <<"createdAt">>,
     <<"updatedAt">>,
-    <<"favoritesCount">>,
+    <<"favorited_by">>,
     <<"author_id">>,
     <<"tagList">>
 ]).
 
--define(ARTICLE_EXCLUDE_KEYS, [<<"id">>, <<"author_id">>]).
+-define(ARTICLE_EXCLUDE_KEYS, [
+    <<"id">>,
+    <<"author_id">>,
+    <<"favorited_by">>
+]).
 
 -define(USER_KEYS, [
     <<"id">>,
@@ -51,15 +55,36 @@
 -define(COMMENT_KEYS, [
     <<"id">>,
     <<"body">>,
-    <<"author_id">>,
+    <<"author">>,
     <<"slug">>,
     <<"createdAt">>,
     <<"updatedAt">>
 ]).
 
 -define(COMMENT_EXCLUDE_KEYS, [
-    <<"author_id">>,
+    <<"author">>,
     <<"slug">>
 ]).
 
--define(PROFILE_KEYS, [<<"username">>, <<"bio">>, <<"image">>, <<"following">>]).
+-define(PROFILE_KEYS, [
+    <<"username">>,
+    <<"bio">>,
+    <<"image">>,
+    <<"following">>
+]).
+
+%% QS keys
+
+-define(OFFSET, offset).
+-define(TAG, tag).
+-define(AUTHOR, author).
+-define(FAVORITED, favorited).
+-define(LIMIT, limit).
+
+-define(DEFAULT_QS, [
+    {?LIMIT, int, 20},
+    {?OFFSET, int, 0},
+    {?TAG, [], ""},
+    {?AUTHOR, [], ""},
+    {?FAVORITED, [], ""}
+]).

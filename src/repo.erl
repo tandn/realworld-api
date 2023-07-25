@@ -7,18 +7,18 @@
 
 -export([
     %% user
-    get_user/1,
-    get_user_by_id/1,
+    login_user/1,
     update_user/2,
     auth_user/2,
     create_user/1,
     create_article/2,
     %% profile
     get_user_by_username/1,
+    get_user_by_id/1,
     follow_user/2,
     unfollow_user/2,
     %% article
-    get_articles_with_authors/0,
+    get_articles_with_authors/1,
     get_article_by_slug/1,
     update_article/3,
     favorite_article/2,
@@ -31,6 +31,8 @@
     %% tag
     get_tags/0
 ]).
+
+-export([build_query/1]).
 
 -define(DB_NAME, pgsql).
 
@@ -48,8 +50,8 @@ init() ->
 
     {ok, _Pid} = pooler:new_pool(PoolConfig).
 
--spec get_user(map()) -> {ok, map()} | {error, term()}.
-get_user(User) ->
+-spec login_user(map()) -> {ok, map()} | {error, term()}.
+login_user(User) ->
     Email = maps:get(<<"email">>, User),
     Password = maps:get(<<"password">>, User),
     case
@@ -66,6 +68,19 @@ get_user(User) ->
             Result
     end.
 
+get_user_by_id(UserId) ->
+    case
+        query(
+            "select * from users where id = $1",
+            [UserId]
+        )
+    of
+        {ok, [Row]} ->
+            {ok, user_h:user_map_from_row(Row)};
+        _ ->
+	    {error, not_found}
+    end.
+
 get_user_by_username(Username) ->
     case
         query(
@@ -73,19 +88,17 @@ get_user_by_username(Username) ->
             [Username]
         )
     of
-        {ok, []} ->
-            {error, not_found};
         {ok, [Row]} ->
             {ok, user_h:user_map_from_row(Row)};
-        Result ->
-            Result
+        _ ->
+	    {error, not_found}
     end.
 
-follow_user(UserId, Username) ->
+follow_user(#{<<"id">> := FollowerId} = _Follower, Followee) ->
     case
         query(
             "update users set followed_by = array_append(followed_by, $1) where username = $2 and $1 = any(followed_by) is not true returning *",
-            [UserId, Username]
+            [FollowerId, Followee]
         )
     of
         {ok, 1, [Row]} ->
@@ -94,10 +107,10 @@ follow_user(UserId, Username) ->
             {error, <<"fail to follow">>}
     end.
 
-unfollow_user(UserId, Username) ->
+unfollow_user(#{<<"id">> := FollowerId} = _Follower, Followee) ->
     case
         query("update users set followed_by = array_remove(followed_by, $1) where username = $2 returning *", [
-            UserId, Username
+            FollowerId, Followee
         ])
     of
         {ok, 1, [Row]} ->
@@ -152,16 +165,16 @@ do_insert(User) ->
     end.
 
 -spec update_user(map(), map()) -> {ok, map()} | {error, term()}.
-update_user(User, #{<<"id">> := UserId}) ->
-    {ok, User0} = get_user_by_id(UserId),
+update_user(User, #{<<"username">> := Username, <<"id">> := UserId} = _ClaimUser) ->
+    {ok, User0} = get_user_by_username(Username),
     User1 = maps:merge(User0, User),
     Password = maps:get(<<"password">>, User1),
-    do_update(User1#{<<"password">> => encrypt_password(Password)}, UserId).
+    do_update_user(User1#{<<"password">> => encrypt_password(Password)}, UserId).
 
 %% @private
-do_update(User, UserId) ->
+do_update_user(User, UserId) ->
     #{
-        <<"username">> := UserName,
+        <<"username">> := Username,
         <<"email">> := Email,
         <<"password">> := Password,
         <<"bio">> := Bio,
@@ -170,7 +183,7 @@ do_update(User, UserId) ->
     case
         query(
             "update users set username = $1, email = $2, password = $3, bio = $4, image = $5 where id = $6",
-            [UserName, Email, Password, Bio, Image, UserId]
+            [Username, Email, Password, Bio, Image, UserId]
         )
     of
         {ok, 1} ->
@@ -180,7 +193,7 @@ do_update(User, UserId) ->
     end.
 
 -spec create_article(map(), binary()) -> {ok, map()} | {error, term()}.
-create_article(#{<<"article">> := Article}, UserId) ->
+create_article(#{<<"article">> := Article}, #{<<"id">> := UserId} = _ClaimUser) ->
     Body = maps:get(<<"body">>, Article),
     Desc = maps:get(<<"description">>, Article),
     Tags = maps:get(<<"tagList">>, Article),
@@ -198,11 +211,36 @@ create_article(#{<<"article">> := Article}, UserId) ->
             {error, Reason}
     end.
 
--spec get_articles_with_authors() -> {ok, list()} | {error, term()}.
-get_articles_with_authors() ->
+-spec get_articles_with_authors(map()) -> {ok, list()} | {error, term()}.
+get_articles_with_authors(Opts) ->
+    Limit = maps:get(?LIMIT, Opts),
+    Offset = maps:get(?OFFSET, Opts),
+    FavoritedAuthor = maps:get(?FAVORITED, Opts),
+
+    {ok, UserId} = query("select id from users where username = $1", [FavoritedAuthor]),
+
+    {WhereClause, Index, Params} = build_query(
+				     maps:to_list(
+				       maps:with(
+					 [?AUTHOR, ?FAVORITED, ?TAG],
+					 Opts#{?FAVORITED => UserId}
+					)
+				      )
+				    ),
+    LimitClause = " limit $" ++ integer_to_list(Index) ++ " offset $" ++ integer_to_list(Index + 1),
+
+    Query = "select distinct articles.*, users.* from articles, users where articles.author_id = users.id" ++
+	WhereClause ++
+	" order by created_at desc" ++
+	LimitClause,
+    io:format("Query ~p - ~p ~n",[Query, Params]),
     case
         query(
-            "select distinct articles.*, users.* from articles, users where articles.author_id = users.id order by created_at desc"
+            "select distinct articles.*, users.* from articles, users where articles.author_id = users.id" ++
+                WhereClause ++
+                " order by created_at desc" ++
+                LimitClause,
+            Params ++ [Limit, Offset]
         )
     of
         {ok, []} ->
@@ -225,15 +263,15 @@ get_article_by_slug(Slug) ->
             Result
     end.
 
-update_article(Article, Slug, ClaimId) ->
+update_article(Article, Slug, ClaimUser) ->
     case repo:get_article_by_slug(Slug) of
         {ok, Article0} ->
-            do_update_article(Article0, Article, Slug, ClaimId);
+            do_update_article(Article0, Article, Slug, ClaimUser);
         {error, Reason} ->
             {error, Reason}
     end.
 
-do_update_article(Article0, Article, Slug, ClaimId) ->
+do_update_article(Article0, Article, Slug, #{<<"id">> := UserId} = _ClaimUser) ->
     Article1 = maps:merge(Article0, Article),
     Title = maps:get(<<"title">>, Article1),
     Slug1 = slug:make(binary_to_list(Title)),
@@ -248,7 +286,7 @@ do_update_article(Article0, Article, Slug, ClaimId) ->
             true ->
                 query(
                     "update articles set (title, slug, body, description, updated_at, tag_list) = ($1, $2, $3, $4, $5, $6) where slug = $7 and author_id = $8",
-                    [Title, Slug1, Body, Desc, Now, Tags, Slug, ClaimId]
+                    [Title, Slug1, Body, Desc, Now, Tags, Slug, UserId]
                 );
             false ->
                 query(
@@ -263,13 +301,13 @@ do_update_article(Article0, Article, Slug, ClaimId) ->
             {error, <<"failed when updating article">>}
     end.
 
-favorite_article(Slug, ClaimId) ->
+favorite_article(Slug, #{<<"id">> := UserId} = _ClaimUser) ->
     Now = erlang:timestamp(),
 
     case
         query(
-            "update articles set (favorites_count, updated_at) = (favorites_count + 1, $1) where slug = $2 and author_id = $3 returning *",
-            [Now, Slug, ClaimId]
+            "update articles set (favorited_by, updated_at) = (array_append(favorited_by, $1), $2) where slug = $3 returning *",
+            [UserId, Now, Slug]
         )
     of
         {ok, 1, [Row]} ->
@@ -282,13 +320,13 @@ favorite_article(Slug, ClaimId) ->
             {error, <<"fail when favoriting article">>}
     end.
 
-unfavorite_article(Slug, ClaimId) ->
+unfavorite_article(Slug, #{<<"id">> := UserId} = _ClaimUser) ->
     Now = erlang:timestamp(),
 
     case
         query(
-            "update articles set (favorites_count, updated_at) = (favorites_count - 1, $1) where slug = $2 and author_id = $3 returning *",
-            [Now, Slug, ClaimId]
+            "update articles set (favorited_by, updated_at) = (array_remove(favorited_by, $1), $2) where slug = $3 returning *",
+            [UserId, Now, Slug]
         )
     of
         {ok, 1, [Row]} ->
@@ -301,32 +339,24 @@ unfavorite_article(Slug, ClaimId) ->
             Result
     end.
 
-delete_article(Slug, ClaimId) ->
-    _ = query("delete from articles where slug = $1 and author_id = $2", [Slug, ClaimId]).
+delete_article(Slug, #{<<"id">> := UserId} = _ClaimUser) ->
+    _ = query("delete from articles where slug = $1 and author_id = $2", [Slug, UserId]).
 
-get_user_by_id(UserId) ->
-    case query("select * from users where id = $1", [UserId]) of
-        {ok, [Row]} ->
-            {ok, user_h:user_map_from_row(Row)};
-        _ ->
-            {error, not_found}
-    end.
-
-add_comment(#{<<"comment">> := Comment}, Slug, ClaimId) ->
+add_comment(#{<<"comment">> := Comment}, Slug, #{<<"id">> := UserId} = _ClaimUser) ->
     Body = maps:get(<<"body">>, Comment),
 
-    case query("insert into comments (body, author_id, slug) values ($1, $2, $3) returning *", [Body, ClaimId, Slug]) of
-        {ok, 1, [Comment0]} ->
-            {ok, comment_h:comment_map_from_row(Comment0)};
+    case query("insert into comments (body, author_id, slug) values ($1, $2, $3) returning *", [Body, UserId, Slug]) of
+        {ok, 1, [Comment1]} ->
+            {ok, comment_h:comment_map_from_row(Comment1)};
         {error, Reason} ->
             logger:error("Cannot add comment ~p for reason ~p~n", [Comment, Reason]),
             {error, Reason}
     end.
 
-delete_comment(ClaimId, CommentId, Slug) ->
+delete_comment(CommentId, Slug, #{<<"id">> := UserId} = _ClaimUser) ->
     try
         Id = binary_to_integer(CommentId),
-        query("delete from comments where author_id = $1 and id = $2 and slug = $3", [ClaimId, Id, Slug])
+        query("delete from comments where author_id = $1 and id = $2 and slug = $3", [UserId, Id, Slug])
     of
         {ok, _Count} ->
             true;
@@ -368,9 +398,9 @@ query(Command, ArgList) ->
     try epgsql:equery(Conn, Command, ArgList) of
         {ok, Count} ->
             {ok, Count};
-        {ok, Columns, Rows} ->
+        {ok, _Columns, Rows} ->
             {ok, Rows};
-        {ok, Count, Columns, Rows} ->
+        {ok, Count, _Columns, Rows} ->
             {ok, Count, Rows};
         {error, #error{message = Reason}} ->
             logger:error("query: ~p, arg: ~p failed for reason: ~p~n", [Command, ArgList, Reason]),
@@ -388,3 +418,24 @@ query(Command, ArgList) ->
 
 encrypt_password(Password) ->
     list_to_binary(lists:flatten([[io_lib:format("~2.16.0B", [X]) || <<X:8>> <= crypto:hash(md5, Password)]])).
+
+build_query(List) ->
+    build_query(List, 1, [], []).
+
+build_query([], Index, Acc, Params) when length(Params) > 0 ->
+    {" and " ++ lists:flatten(lists:join(" and ", lists:reverse(Acc))), Index, lists:reverse(Params)};
+build_query([], Index, Acc, Params) ->
+    {Acc, Index, Params};
+build_query([{_Key, []} | T], Index, Acc, Params) ->
+    build_query(T, Index, Acc, Params);
+build_query([{Key, Value} | T], Index, Acc, Params) ->
+    Str =
+        case Key of
+            ?TAG ->
+                "$" ++ integer_to_list(Index) ++ " = any(tag_list)";
+            ?AUTHOR ->
+                "username = $" ++ integer_to_list(Index);
+	    ?FAVORITED ->
+		"$" ++ integer_to_list(Index) ++ " = any(favorited_by)"
+        end,
+    build_query(T, Index + 1, [Str | Acc], [Value | Params]).

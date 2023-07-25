@@ -79,9 +79,9 @@ handle_login(Req, #{jwt_key := JWTKey} = State) ->
     {stop, Req1, State}.
 
 handle_create(Req, #{jwt_key := JWTKey} = State) ->
-    {ok, Data, Req0} = cowboy_req:read_body(Req),
+    {ok, Body, Req0} = cowboy_req:read_body(Req),
     Req1 =
-        case get_user(jsx:decode(Data), <<"create">>) of
+        case get_user(jsx:decode(Body), <<"create">>) of
             {error, undefined} ->
                 common:reply(Req0, ?HTTP_INVALID, ?error_msg([<<"Can't be empty">>]));
             {error, Description} ->
@@ -94,21 +94,21 @@ handle_create(Req, #{jwt_key := JWTKey} = State) ->
         end,
     {stop, Req1, State}.
 
-handle_update(Req, #{<<"user">> := User0, jwt_key := JWTKey} = State) ->
+handle_update(Req, #{<<"user">> := User, jwt_key := JWTKey} = State) ->
     {ok, Body, Req0} = cowboy_req:read_body(Req),
 
-    #{<<"user">> := User} = jsx:decode(Body),
+    #{<<"user">> := User0} = jsx:decode(Body),
 
-    {ok, User1} = repo:update_user(User, User0),
+    {ok, User1} = repo:update_user(User0, User),
 
     Req1 = common:reply(Req0, ?HTTP_OK, build_response(User1, JWTKey)),
 
     {stop, Req1, State}.
 
 handle_get(Req, #{<<"user">> := User, jwt_key := JWTKey} = State) ->
-    UserId = maps:get(<<"id">>, User),
+    Username = maps:get(<<"username">>, User),
     Response =
-        case repo:get_user_by_id(UserId) of
+        case repo:get_user_by_username(Username) of
             {ok, UserMap} ->
                 build_response(UserMap, JWTKey);
             {error, _} ->
@@ -127,22 +127,21 @@ get_user(#{<<"user">> := User}, Action) ->
         {MKs, _} ->
             {error, [<<"Missing keys:">> | MKs]}
     end;
-get_user(Body, _Path) ->
+get_user(_Body, _Path) ->
     {error, undefined}.
 
 login_or_register_user(User, <<"login">>) ->
-    repo:get_user(User);
+    repo:login_user(User);
 login_or_register_user(User, <<"create">>) ->
-    case repo:get_user(User) of
-        {error, _} ->
-            repo:create_user(User);
+    case repo:login_user(User) of
         {ok, _} ->
-            logger:warning("User exists~n"),
             Msg = #{
                 <<"email">> => [<<"has already been taken">>],
                 <<"username">> => [<<"has already been taken">>]
             },
-            {error, Msg}
+            {error, Msg};
+        {error, _} ->
+            repo:create_user(User)
     end.
 
 missing_keys(User, Action) ->
@@ -170,7 +169,7 @@ to_callback(<<"/api/user">>) ->
     handle_update.
 
 build_response(User, JWTKey) ->
-    Claim = maps:with([<<"id">>], User),
+    Claim = maps:with([<<"id">>, <<"username">>], User),
     Token = gen_token(Claim, JWTKey),
     #{
         <<"user">> =>

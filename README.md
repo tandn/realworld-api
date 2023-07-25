@@ -12,11 +12,11 @@ A few rest APIs [realworld_api](https://realworld-docs.netlify.app/docs/specs/ba
         {"/api/profiles/:username", profile_h, #{methods => [<<"GET">>]}},
         {"/api/profiles/:username/follow", profile_h, #{methods => [<<"POST">>, <<"DELETE">>]}},
 
-        {"/api/articles/", article_h, #{methods => [<<"GET">>, <<"POST">>]}},
+        {"/api/articles", article_h, #{methods => [<<"GET">>, <<"POST">>]}},
         {"/api/articles/feed", article_h, #{methods => [<<"GET">>]}},
 
-        {"/api/articles/:slug", article_slug_h, #{methods => [<<"GET">>, <<"DELETE">>, <<"PUT">>]}},
-        {"/api/articles/:slug/favorite", article_slug_h, #{methods => [<<"POST">>, <<"DELETE">>]}},
+        {"/api/articles/:slug", slug_h, #{methods => [<<"GET">>, <<"DELETE">>, <<"PUT">>]}},
+        {"/api/articles/:slug/favorite", slug_h, #{methods => [<<"POST">>, <<"DELETE">>]}},
 
         %% comments
         {"/api/articles/:slug/comments", comment_h, #{methods => [<<"POST">>, <<"GET">>]}},

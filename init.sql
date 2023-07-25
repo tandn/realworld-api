@@ -19,9 +19,9 @@ create table if not exists articles (
     description varchar,
     created_at timestamp with time zone default now(),
     updated_at timestamp with time zone default now(),
-    favorites_count integer default 0,
+    favorited_by uuid[] default '{}',
     author_id uuid not null,
-    tag_list varchar array,
+    tag_list varchar array default '{}',
     primary key (id),
     foreign key (author_id)
     references users (id)
